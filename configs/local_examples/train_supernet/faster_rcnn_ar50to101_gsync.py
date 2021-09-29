@@ -1,7 +1,7 @@
 _base_ = [
     '../../_dynamic_/models/faster_rcnn_fpn_ar50to101_gsync.py',
     '../../_dynamic_/model_samplers/ar50to101.py',
-    '../../_dynamic_/datasets/uni_all.py',
+    '../../_dynamic_/datasets/uni_coco.py',
     '../../_dynamic_/schedules/schedule_all_42e.py',
     '../../_base_/default_runtime.py'
 ]

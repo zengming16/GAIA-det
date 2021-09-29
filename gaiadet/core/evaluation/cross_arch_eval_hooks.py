@@ -56,8 +56,13 @@ class CrossArchEvalHook(EvalHook):
 
     rule_map = {'greater': lambda x, y: x > y, 'less': lambda x, y: x < y}
     init_value_map = {'greater': -inf, 'less': inf}
-    greater_keys = ['mAP', 'AR']
-    less_keys = ['loss']
+    #greater_keys = ['mAP', 'AR']
+    #less_keys = ['loss']
+    _default_greater_keys = [
+        'acc', 'top', 'AR@', 'auc', 'precision', 'mAP', 'mDice', 'mIoU',
+        'mAcc', 'aAcc'
+    ]
+    _default_less_keys = ['loss']
 
     def __init__(self,
                  dataloader,
@@ -69,6 +74,10 @@ class CrossArchEvalHook(EvalHook):
                  arch_name=None,
                  dataset_name=None,
                  rule=None,
+                 test_fn=None,
+                 greater_keys=None,
+                 less_keys=None,
+                 by_epoch=True,
                  **eval_kwargs):
         if isinstance(dataloader, DataLoader):
             dataloader = dataloader
@@ -78,11 +87,17 @@ class CrossArchEvalHook(EvalHook):
 
         if not interval > 0:
             raise ValueError(f'interval must be positive, but got {interval}')
+        
+        assert isinstance(by_epoch, bool), '``by_epoch`` should be a boolean'
+        
         if start is not None and start < 0:
-            warnings.warn(
-                f'The evaluation start epoch {start} is smaller than 0, '
-                f'use 0 instead', UserWarning)
-            start = 0
+#            warnings.warn(
+#                f'The evaluation start epoch {start} is smaller than 0, '
+#                f'use 0 instead', UserWarning)
+#            start = 0
+            raise ValueError(f'The evaluation start epoch {start} is smaller '
+                             f'than 0')
+                             
         if not isinstance(dataloader.dataset, UniConcatDataset):
             assert dataset_name is None, (
                 'Only support UniConcatDataset at the time')
@@ -91,18 +106,45 @@ class CrossArchEvalHook(EvalHook):
 
         self.interval = interval
         self.start = start
-        assert isinstance(save_best, str) or save_best is None
+        self.by_epoch = by_epoch
+        
+        assert isinstance(save_best, str) or save_best is None, \
+            '""save_best"" should be a str or None ' \
+            f'rather than {type(save_best)}'
         self.save_best = save_best
         self.key_indicator = key_indicator
         self.arch_name = arch_name
         self.dataset_name = dataset_name
 
         self.eval_kwargs = eval_kwargs
-        self.initial_epoch_flag = True
+        #self.initial_epoch_flag = True
+        self.initial_flag = True
 
         self.logger = get_root_logger()
+        if test_fn is None:
+            from mmdet.apis import single_gpu_test
+            self.test_fn = single_gpu_test
+        else:
+            self.test_fn = test_fn
+
+        if greater_keys is None:
+            self.greater_keys = self._default_greater_keys
+        else:
+            if not isinstance(greater_keys, (list, tuple)):
+                greater_keys = (greater_keys, )
+            assert is_seq_of(greater_keys, str)
+            self.greater_keys = greater_keys
+
+        if less_keys is None:
+            self.less_keys = self._default_less_keys
+        else:
+            if not isinstance(less_keys, (list, tuple)):
+                less_keys = (less_keys, )
+            assert is_seq_of(less_keys, str)
+            self.less_keys = less_keys
 
         if self.save_best is not None:
+            self.best_ckpt_path = None
             self._init_rule(rule, self.save_best, self.key_indicator)
 
     def _init_rule(self, rule, save_best, key_indicator):
@@ -122,7 +164,16 @@ class CrossArchEvalHook(EvalHook):
                              f'`arch_avg`, `avg`), but got `{save_best}`')
 
         if rule is None and key_indicator is not None:
-            if any(key in key_indicator for key in self.greater_keys):
+            # `_lc` here means we use the lower case of keys for
+            # case-insensitive matching
+            key_indicator_lc = key_indicator.lower()
+            greater_keys = [key.lower() for key in self.greater_keys]
+            less_keys = [key.lower() for key in self.less_keys]
+            if key_indicator_lc in greater_keys:
+                rule = 'greater'
+            elif key_indicator_lc in less_keys:
+                rule = 'less'
+            elif any(key in key_indicator for key in self.greater_keys):
                 rule = 'greater'
             elif any(key in key_indicator for key in self.less_keys):
                 rule = 'less'
@@ -191,7 +242,7 @@ class CrossArchEvalHook(EvalHook):
                 'Current model does not support arch manipulation.')
 
     def after_train_epoch(self, runner):
-        if not self.evaluation_flag(runner):
+        if not self._should_evaluate(runner):
             return
         from mmdet.apis import single_gpu_test
 
@@ -284,7 +335,16 @@ class DistCrossArchEvalHook(CrossArchEvalHook):
             arch_name=None,
             dataset_name=None,
             rule=None,
+            by_epoch=True,
+            test_fn=None,
+            greater_keys=None,
+            less_keys=None,
+            broadcast_bn_buffer=True,
             **eval_kwargs):
+        if test_fn is None:
+            from mmdet.apis import multi_gpu_test
+            test_fn = multi_gpu_test
+
         super().__init__(
             dataloader,
             model_sampler,
@@ -294,13 +354,18 @@ class DistCrossArchEvalHook(CrossArchEvalHook):
             key_indicator=key_indicator,
             arch_name=arch_name,
             dataset_name=dataset_name,
+            by_epoch=by_epoch,
+            test_fn=test_fn,
+            greater_keys=greater_keys,
+            less_keys=less_keys,
             rule=rule,
             **eval_kwargs)
+        self.broadcast_bn_buffer = broadcast_bn_buffer
         self.tmpdir = tmpdir
         self.gpu_collect = gpu_collect
 
     def after_train_epoch(self, runner):
-        if not self.evaluation_flag(runner):
+        if not self._should_evaluate(runner):
             return
 
         from mmdet.apis import multi_gpu_test

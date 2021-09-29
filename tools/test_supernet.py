@@ -258,7 +258,7 @@ def main():
         model = MMDataParallel(model, device_ids=[0])
         for i, model_meta in enumerate(model_metas):
             # manipulate data
-            new_scale = model_meta['data']['input_shape'][-1]
+            new_scale = model_meta['data']['input_shape']
             scale_manipulator = ScaleManipulator(new_scale)
             manipulate_dataset(cfg.data.test, scale_manipulator)
 
@@ -310,7 +310,7 @@ def main():
             model_meta = broadcast_object(model_meta)
 
             # manipulate data
-            new_scale = model_meta['data']['input_shape'][-1]
+            new_scale = model_meta['data']['input_shape']
             scale_manipulator = ScaleManipulator(new_scale)
             manipulate_dataset(cfg.data.test, scale_manipulator)
 

@@ -7,7 +7,7 @@ dataset_types = {
 
 # data root
 data_roots = {
-    'coco': '/path/to/coco',
+    'coco': '/data3/ming_zeng/gaia/coco',
     'openimages': '/path/to/openimages',
     'object365': '/path/to/object365',
 }

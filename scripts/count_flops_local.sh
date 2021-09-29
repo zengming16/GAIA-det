@@ -3,7 +3,7 @@
 GPUS=$1
 CONFIG=$2
 WORK_DIR=$3
-PORT=${PORT:-29500}
+PORT=${PORT:-28500}
 
 # CONFIG=configs/local_examples/count_flops/faster_rcnn_ar50to101_flops.py
 
